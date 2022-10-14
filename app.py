@@ -1,14 +1,16 @@
 # learning flask for web development
 
-from flask import Flask, jsonify, render_template
-from flask_sqlalchemy import SQLAlchemy
+from flask import Flask, jsonify, render_template, request
 import pymysql.cursors
 from flask_mysqldb import MySQL
+from flask_bcrypt import Bcrypt
+from werkzeug.security import generate_password_hash, check_password_hash
 from config import * #import all from config file
 
 
 app = Flask(__name__)
 mysql = MySQL(app)
+bcrypt = Bcrypt(app)
 # connection = pymysql.connect(host='127.0.0.1',
 #                              user='root',
 #                              password='',
@@ -21,14 +23,30 @@ app.config['MYSQL_DB'] = DBNAME
 
 
 
-@app.route('/')
+@app.route('/api/registerUser',methods = ['POST'])
 def main_page():
-    cur = mysql.connection.cursor()
-    # sql = "INSERT INTO student(fname, lname, address) VALUES (%s, %s, %s)", ('Avinash', 'Kshirsagar', 'Pune')
-    cur.execute("INSERT INTO student(fname, lname, address) VALUES (%s, %s, %s)", ('Avinash', 'Kshirsagar', 'Pune'))
-    mysql.connection.commit()
-    # connection.commit()
-    return "record inserted successfully"
+    if request.method == 'POST':
+        _json = request.json
+        fname = _json['fname']
+        lname = _json['lname']
+        address = _json['address']
+        password = _json['password']
+        confirmpassword = _json['confirmpassword']
+        _password_hashed = generate_password_hash(password)
+        _confirm_password_hashed = generate_password_hash(confirmpassword)
+        cur = mysql.connection.cursor()
+        # sql = "INSERT INTO student(fname, lname, address) VALUES (%s, %s, %s)", ('Avinash', 'Kshirsagar', 'Pune')
+        cur.execute("INSERT INTO student(fname, lname, address, password, confirmpassword) VALUES (%s, %s, %s, %s, %s)", (fname , lname, address, _password_hashed, _confirm_password_hashed))
+        mysql.connection.commit()
+        # connection.commit()
+        return jsonify({"message" : "record inserted successfully"}),200
+    elif request.method == 'GET': 
+        return jsonify({"message" : "invalid method."}),405
+
+@app.route('/signup')
+def signUpPage():
+    return render_template("signup.html")
+
 
 @app.route('/records')
 def getRecords():
