@@ -1,65 +1,132 @@
-# learning flask for web development
-
-from flask import Flask, jsonify, render_template, request
-import pymysql.cursors
-from flask_mysqldb import MySQL
+from flask import Flask, render_template, url_for, redirect, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from unicodedata import category
+from flask_login import UserMixin, login_user, LoginManager, login_required, logout_user, current_user
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, SubmitField
+from wtforms.validators import InputRequired, Length, ValidationError
 from flask_bcrypt import Bcrypt
-from werkzeug.security import generate_password_hash, check_password_hash
-from config import * #import all from config file
-
+from flask import flash
+import jwt
+import datetime
+from functools import wraps
 
 app = Flask(__name__)
-mysql = MySQL(app)
+db = SQLAlchemy(app)  #creates database
 bcrypt = Bcrypt(app)
-# connection = pymysql.connect(host='127.0.0.1',
-#                              user='root',
-#                              password='',
-#                              database='test',
-#                              cursorclass=pymysql.cursors.DictCursor)
-app.config['MYSQL_HOST'] = ENDPOINT
-app.config['MYSQL_USER'] = USERNAME
-app.config['MYSQL_PASSWORD'] = PASSWORD
-app.config['MYSQL_DB'] = DBNAME
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'  #connects to database
+
+app.config['SECRET_KEY'] = 'thisisasecretkey'
+key = 'secret'
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(20), nullable=False, unique=True)
+    password = db.Column(db.String(80), nullable=False)
+
+
+class RegisterForm(FlaskForm):
+    username = StringField(validators=[InputRequired(), Length
+    (min=4, max=20)], render_kw={"placeholder": "Username"})
+
+    password = PasswordField(validators=[InputRequired(), Length
+    (min=8, max=20)], render_kw={"placeholder": "Password"})
+
+    submit = SubmitField('Register')
+
+    def validate_username(self, username):
+        existing_user_username = User.query.filter_by(
+            username=username.data).first()
+        if existing_user_username:
+            flash("That username already exists. Please choose a different one.", category='error' )
+            raise ValidationError(
+                'That username already exists. Please choose a different one.')
+
+
+class LoginForm(FlaskForm):
+    username = StringField(validators=[InputRequired(), Length
+    (min=4, max=20)], render_kw={"placeholder": "Username"})
+
+    password = PasswordField(validators=[InputRequired(), Length
+    (min=8, max=20)], render_kw={"placeholder": "Password"})
+
+    submit = SubmitField('Login')
+
+
+@app.route('/')
+def home():
+    return render_template('home.html')
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.args.get('token') #http://localhost:5000/route?token=ackbkckjckvcsad
+        # token = request.headers['token'] # it should be passed in headers token as key and value
+        if not token:
+            return jsonify({'message':'Token is missing!'}), 403
+        try:
+            data = jwt.decode(token, key, algorithms="HS256")
+        except:
+            return jsonify({'message':'Token is Invalid!'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        token = jwt.encode({'user':form.username.data, 'exp':datetime.datetime.utcnow()+datetime.timedelta(minutes=5)}, key)
+        if user:
+            if bcrypt.check_password_hash(user.password, form.password.data):
+                login_user(user)
+                flash("successfully logged in!!", category = 'success')
+                # return redirect(url_for('dashboard'))
+                return jsonify({"Data":user})
+            else:
+                flash("Incorrect password!!", category = 'error')
+    return render_template('login.html', form=form)
 
 
 
-@app.route('/api/registerUser',methods = ['POST'])
-def main_page():
-    if request.method == 'POST':
-        _json = request.json
-        fname = _json['fname']
-        lname = _json['lname']
-        address = _json['address']
-        password = _json['password']
-        confirmpassword = _json['confirmpassword']
-        _password_hashed = generate_password_hash(password)
-        _confirm_password_hashed = generate_password_hash(confirmpassword)
-        cur = mysql.connection.cursor()
-        # sql = "INSERT INTO student(fname, lname, address) VALUES (%s, %s, %s)", ('Avinash', 'Kshirsagar', 'Pune')
-        cur.execute("INSERT INTO student(fname, lname, address, password, confirmpassword) VALUES (%s, %s, %s, %s, %s)", (fname , lname, address, _password_hashed, _confirm_password_hashed))
-        mysql.connection.commit()
-        # connection.commit()
-        return jsonify({"message" : "record inserted successfully"}),200
-    elif request.method == 'GET': 
-        return jsonify({"message" : "invalid method."}),405
 
-@app.route('/signup')
-def signUpPage():
-    return render_template("signup.html")
+@app.route('/dashboard', methods=['GET', 'POST'])
+@login_required
+@token_required
+def dashboard():
+    return render_template('dashboard.html')
 
 
-@app.route('/records')
-def getRecords():
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT * FROM student")
-    # cur.execute(sql, ('webmaster@python.org',))
-    result = cur.fetchall()
-    return jsonify({"studentdata":result})
+@app.route('/logout', methods=['GET', 'POST'])
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
 
-@app.route('/login')
-def login_page():
-    return render_template("index.html")
-    
-if __name__ == '__main__':
-    app.run(debug = True)
+@ app.route('/register', methods=['GET', 'POST'])
+def register():
+    form = RegisterForm()
+
+    if form.validate_on_submit():
+        hashed_password = bcrypt.generate_password_hash(form.password.data)
+        new_user = User(username=form.username.data, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('login'))
+
+    return render_template('register.html', form=form)
+
+if __name__ == "__main__":
+    app.run(debug=True)
