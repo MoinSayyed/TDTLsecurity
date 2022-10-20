@@ -7,17 +7,23 @@ from wtforms import StringField, PasswordField, SubmitField
 from wtforms.validators import InputRequired, Length, ValidationError
 from flask_bcrypt import Bcrypt
 from flask import flash
+import pymysql
+import config
 import jwt
 import datetime
 from functools import wraps
 
+# here i have created the necessary changes to support mysql
+conn = "mysql+pymysql://{0}:{1}@{2}/{3}".format(config.dbuser, config.dbpass, config.dbhost, config.dbname)
+
 app = Flask(__name__)
+app.config["SQLALCHEMY_DATABASE_URI"] = conn
 db = SQLAlchemy(app)  #creates database
 bcrypt = Bcrypt(app)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'  #connects to database
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'  #connects to database
 
 app.config['SECRET_KEY'] = 'thisisasecretkey'
-key = 'secret'
+# key = 'secret'
 
 
 login_manager = LoginManager()
@@ -68,19 +74,19 @@ class LoginForm(FlaskForm):
 def home():
     return render_template('home.html')
 
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.args.get('token') #http://localhost:5000/route?token=ackbkckjckvcsad
-        # token = request.headers['token'] # it should be passed in headers token as key and value
-        if not token:
-            return jsonify({'message':'Token is missing!'}), 403
-        try:
-            data = jwt.decode(token, key, algorithms="HS256")
-        except:
-            return jsonify({'message':'Token is Invalid!'}), 403
-        return f(*args, **kwargs)
-    return decorated
+# def token_required(f):
+#     @wraps(f)
+#     def decorated(*args, **kwargs):
+#         token = request.args.get('token') #http://localhost:5000/route?token=ackbkckjckvcsad
+#         # token = request.headers['token'] # it should be passed in headers token as key and value
+#         if not token:
+#             return jsonify({'message':'Token is missing!'}), 403
+#         try:
+#             data = jwt.decode(token, key, algorithms="HS256")
+#         except:
+#             return jsonify({'message':'Token is Invalid!'}), 403
+#         return f(*args, **kwargs)
+#     return decorated
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -103,7 +109,7 @@ def login():
 
 @app.route('/dashboard', methods=['GET', 'POST'])
 @login_required
-@token_required
+# @token_required
 def dashboard():
     return render_template('dashboard.html')
 
